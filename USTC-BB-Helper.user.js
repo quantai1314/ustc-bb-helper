@@ -3,9 +3,9 @@
 // @name:zh-CN   USTC BB 助手
 // @license      gpl-3.0
 // @namespace    ustc-bb-helper
-// @version      1.3.0
-// @description  Enhancements for USTC Blackboard: homework status badges (submitted / not submitted / graded), homepage courses sorted by unsubmitted homework with direct links to the homework area, personalized homepage color theme applied to all pages, auto login, auto authentication off campus. Standalone bb module based on PRO's USTC Helper (GPL-3.0), no external dependencies.
-// @description:zh-CN  为中科大 bb 网络教学平台增强：作业区自动标注提交状态（已提交/未提交/已评分），支持点击忽略作业；主页「当前学期课程」按未提交作业数排序并显示数量徽章，点击课程直达作业区；主页个性化主题颜色全站生效；自动点击统一身份认证登录；校外访问自动认证。基于 PRO 的 USTC Helper (GPL-3.0) bb 模块修复而来，无任何外部依赖。
+// @version      1.4.0
+// @description  Enhancements for USTC Blackboard: course and homework overviews, filterable homework status badges with keyboard-accessible ignore controls, courses sorted by unsubmitted homework with direct links, personalized color theme on all pages, auto login and off-campus authentication. Based on PRO's USTC Helper (GPL-3.0), no external dependencies.
+// @description:zh-CN  为中科大 bb 网络教学平台增强：课程与作业概览、提交状态筛选、支持键盘操作的忽略按钮；主页按未提交作业数排序，点击课程直达作业区；主页个性化主题颜色全站生效；自动登录及校外认证。基于 PRO 的 USTC Helper (GPL-3.0) bb 模块修复而来，无任何外部依赖。
 // @match        https://www.bb.ustc.edu.cn/*
 // @match        https://bb.ustc.edu.cn/*
 // @icon         https://www.bb.ustc.edu.cn/images/ci/icons/favicon.ico
@@ -60,31 +60,118 @@
     // ---------- 共用 ----------
     const css = document.createElement('style');
     css.textContent = `
+        .ustc-bb-overview, .ustc-bb-hint, .ustc-bb-filters {
+            font-family: system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+            box-sizing: border-box;
+        }
+        .ustc-bb-overview {
+            margin: 12px 0 20px;
+            padding: 20px;
+            border: 1px solid #dbe3ed;
+            border-radius: 14px;
+            background: #f8fafc;
+            color: #172b4d;
+        }
+        .ustc-bb-overview h3 { margin: 0 0 6px; font-size: 18px; font-weight: 700; }
+        .ustc-bb-overview p { margin: 0; color: #52627a; font-size: 13px; line-height: 1.7; }
+        .ustc-bb-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 16px 0; }
+        .ustc-bb-stat { padding: 12px; border: 1px solid #e2e8f0; border-radius: 10px; background: #fff; }
+        .ustc-bb-stat dt { font-size: 12px; color: #52627a; }
+        .ustc-bb-stat dd { margin: 4px 0 0; color: #172b4d; font-size: 26px; font-weight: 700; line-height: 1.2; font-variant-numeric: tabular-nums; }
+        .ustc-bb-stat:first-child dd { color: #b42318; }
+        .ustc-bb-filters { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+        .ustc-bb-filters button {
+            appearance: none; min-height: 36px; padding: 6px 14px; margin: 0;
+            border: 1px solid #cbd5e1; border-radius: 8px; background: #fff;
+            color: #334155; font: inherit; font-size: 13px; line-height: 1.5; cursor: pointer;
+            box-shadow: none; text-shadow: none;
+        }
+        .ustc-bb-filters button[aria-pressed="true"] { color: #fff; background: #243e63; border-color: #243e63; }
         .ustc-bb-hint {
-            display: inline-block;
-            margin-left: 6px;
-            padding: 1px 8px;
-            border-radius: 10px;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            max-width: 100%;
+            margin: 4px 0 4px 10px;
+            padding: 5px 10px;
+            border: 1px solid transparent;
+            border-radius: 7px;
             font-size: 12px;
             font-weight: 600;
             line-height: 1.6;
-            cursor: pointer;
+            text-align: left;
+            white-space: normal;
+            overflow-wrap: anywhere;
             vertical-align: middle;
             user-select: none;
+            box-shadow: none;
+            text-shadow: none;
         }
-        .ustc-bb-hint-0 { color: #6b7280; background: #f3f4f6; }
-        .ustc-bb-hint-1 { color: #16a34a; background: #dcfce7; }
-        .ustc-bb-hint-2 { color: #dc2626; background: #fee2e2; }
-        .ustc-bb-hint-3 { color: #d97706; background: #fef3c7; }
-        .ustc-bb-hint-4 { color: #6b7280; background: #f3f4f6; }
-        .ustc-bb-hint-5 { color: #2563eb; background: #dbeafe; }
-        .ustc-bb-ignored { opacity: 0.4; }
+        .ustc-bb-hint::before { content: ""; flex: 0 0 6px; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+        button.ustc-bb-hint { appearance: none; min-height: 32px; cursor: pointer; }
+        button.ustc-bb-hint:hover:not(:disabled) { border-color: currentColor; }
+        button.ustc-bb-hint:disabled { cursor: wait; opacity: 1; }
+        .ustc-bb-hint-0, .ustc-bb-hint-4 { color: #475569; background: #edf1f5; }
+        .ustc-bb-hint-1 { color: #166534; background: #e8f5ec; }
+        .ustc-bb-hint-2 { color: #b42318; background: #fff0ed; }
+        .ustc-bb-hint-3 { color: #854d0e; background: #fff6d9; }
+        .ustc-bb-hint-5 { color: #1d4ed8; background: #eaf1ff; }
+        .ustc-bb-hint:focus-visible, .ustc-bb-filters button:focus-visible,
+        .ustc-bb-course a:focus-visible { outline: 3px solid #2563eb; outline-offset: 3px; }
+        .ustc-bb-course-list { padding: 0 !important; list-style: none; }
+        .ustc-bb-course-list > .ustc-bb-course {
+            box-sizing: border-box; margin: 10px 0; padding: 14px 16px;
+            border: 1px solid #dbe3ed; border-left: 3px solid #cbd5e1;
+            border-radius: 10px; background: #fff; color: #52627a;
+            line-height: 1.7; overflow-wrap: anywhere; list-style: none;
+        }
+        .ustc-bb-course-list > .ustc-bb-course[data-status="2"] { border-left-color: #b42318; }
+        .ustc-bb-course-list > .ustc-bb-course:hover { border-color: #94a3b8; }
+        .ustc-bb-course > a { color: #17365d; font-weight: 600; line-height: 1.8; }
+        .ustc-bb-assignment { border-radius: 10px; }
+        .ustc-bb-assignment h3 { line-height: 1.8; overflow-wrap: anywhere; }
+        .ustc-bb-assignment[data-status="2"] { box-shadow: inset 3px 0 #b42318; }
+        .ustc-bb-ignored { background: #f8fafc; }
         .ustc-bb-ignored > .details { display: none; }
+        .ustc-bb-assignment[hidden] { display: none !important; }
+        .ustc-bb-empty { margin: 16px 0; padding: 24px; text-align: center; color: #52627a; background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 10px; }
+        @media (max-width: 480px) {
+            .ustc-bb-overview { padding: 14px; }
+            .ustc-bb-stats { gap: 6px; }
+            .ustc-bb-stat { padding: 10px 8px; }
+            .ustc-bb-stat dd { font-size: 22px; }
+            .ustc-bb-course-list > .ustc-bb-course { padding: 12px; }
+            .ustc-bb-course .ustc-bb-hint { display: flex; width: fit-content; margin-left: 0; }
+        }
     `;
     document.head.appendChild(css);
 
     // 0: 查询中  1: 已提交  2: 未提交  3: 查询错误  4: 已忽略  5: 已评分
     const hintText = ['查询中', '已提交', '未提交', '查询错误', '已忽略', '已评分'];
+
+    function createOverview(list, title, description, labels) {
+        const panel = document.createElement('section');
+        panel.className = 'ustc-bb-overview';
+        panel.setAttribute('aria-label', title);
+        const heading = panel.appendChild(document.createElement('h3'));
+        heading.textContent = title;
+        const intro = panel.appendChild(document.createElement('p'));
+        intro.textContent = description;
+        const stats = panel.appendChild(document.createElement('dl'));
+        stats.className = 'ustc-bb-stats';
+        const values = labels.map(label => {
+            const stat = stats.appendChild(document.createElement('div'));
+            stat.className = 'ustc-bb-stat';
+            stat.appendChild(document.createElement('dt')).textContent = label;
+            const value = stat.appendChild(document.createElement('dd'));
+            value.textContent = '—';
+            return value;
+        });
+        const note = panel.appendChild(document.createElement('p'));
+        note.setAttribute('role', 'status');
+        list.before(panel);
+        return { panel, values, note };
+    }
 
     function getIgnored(courseId) {
         try {
@@ -175,7 +262,7 @@
             const list = doc2.getElementById('content_listContainer');
             if (!list) return { u: 0, hw: true, url: hwUrl };
             const ignored = getIgnored(courseId);
-            let unsub = 0;
+            let unsub = 0, failed = false;
             const jobs = [];
             for (const hw of list.children) {
                 const a = hw.querySelector('h3 > a');
@@ -185,10 +272,13 @@
                 const link = new URL(href, location.origin);
                 const contentId = link.searchParams.get('content_id');
                 if (contentId && ignored.includes(contentId)) continue;
-                jobs.push(queryStatus(link.href).then(([s]) => { if (s === 2) unsub++; }));
+                jobs.push(queryStatus(link.href).then(([s]) => {
+                    if (s === 2) unsub++;
+                    if (s === 3) failed = true;
+                }));
             }
             await Promise.all(jobs);
-            return { u: unsub, hw: true, url: hwUrl };
+            return { u: failed ? -1 : unsub, hw: true, url: hwUrl };
         } catch (e) {
             console.warn(`[USTC BB Helper] Query course "${courseId}" failed:`, e);
             return { u: -1, hw: true, url: null };
@@ -205,79 +295,124 @@
             return;
         }
 
-        // 记录每个作业的实时状态，全部查询完成后回写主页缓存的未提交数
-        const counts = new Map(); // contentId -> status
-        let pending = 0;
-        function syncPortal(courseId) {
-            if (pending) return;
-            let unsub = 0;
-            for (const s of counts.values()) if (s === 2) unsub++;
-            syncPortalCount(courseId, unsub, location.href);
-        }
-
-        async function process(hw) {
+        // 先收集完整列表；筛选只改变可见性，不影响统计与主页缓存。
+        const entries = Array.from(hwList.children).flatMap(hw => {
             const linkEl = hw.querySelector('h3 > a');
-            if (!linkEl) return;
+            if (!linkEl) return [];
             const link = linkEl.href;
-            if (!link.includes('/webapps/assignment/')) return;
-            const hint = linkEl.appendChild(document.createElement('span'));
-            const setHint = (status, extra) => {
-                hint.className = `ustc-bb-hint ustc-bb-hint-${status}`;
-                hint.textContent = `${hintText[status]}${extra ? ' ' + extra : ''}`;
-            };
-            let status = 0, extra = null;
-            setHint(status);
+            if (!link.includes('/webapps/assignment/')) return [];
+            const name = linkEl.textContent.trim();
+            const hint = document.createElement('button');
+            hint.type = 'button';
+            linkEl.after(hint);
+            hw.classList.add('ustc-bb-assignment');
             const params = new URL(link).searchParams;
             const courseId = params.get('course_id');
             const contentId = params.get('content_id');
-            pending++;
-            let ignored = getIgnored(courseId).includes(contentId);
-            if (ignored) {
-                status = 4;
-                linkEl.closest('li')?.classList.add('ustc-bb-ignored');
-                log(`"${courseId}/${contentId}" present in ignore list, ignored.`);
-            } else {
-                [status, extra] = await queryStatus(link);
-                if (status === 1) log(`"${courseId}/${contentId}" is submitted.`);
-                else if (status === 2) log(`"${courseId}/${contentId}" is not submitted.`);
-                else if (status === 5) log(`"${courseId}/${contentId}" is graded.`);
-                else if (status === 3) console.warn(`[USTC BB Helper] Online query "${courseId}/${contentId}" failed!`);
+            const ignored = getIgnored(courseId).includes(contentId);
+            return [{ hw, hint, link, name, courseId, contentId, ignored, status: ignored ? 4 : 0, extra: null }];
+        });
+        if (!entries.length) return;
+
+        const overview = createOverview(hwList, '作业概览', '先处理待提交作业；点击状态按钮可忽略或恢复作业。', ['待提交', '已完成', '已忽略']);
+        const filters = overview.panel.appendChild(document.createElement('div'));
+        filters.className = 'ustc-bb-filters';
+        filters.setAttribute('role', 'group');
+        filters.setAttribute('aria-label', '筛选作业');
+        const modes = [
+            { label: '全部', matches: () => true },
+            { label: '待提交', matches: entry => entry.status === 2 },
+            { label: '已完成', matches: entry => entry.status === 1 || entry.status === 5 },
+            { label: '已忽略', matches: entry => entry.status === 4 },
+        ];
+        let activeFilter = 0;
+        const filterButtons = modes.map((mode, index) => {
+            const button = filters.appendChild(document.createElement('button'));
+            button.type = 'button';
+            button.addEventListener('click', () => {
+                activeFilter = index;
+                render();
+            });
+            return button;
+        });
+        const empty = document.createElement('p');
+        empty.className = 'ustc-bb-empty';
+        empty.hidden = true;
+        hwList.after(empty);
+
+        function render() {
+            const totals = modes.map(mode => entries.filter(mode.matches).length);
+            const pending = entries.filter(entry => entry.status === 0).length;
+            const failed = entries.filter(entry => entry.status === 3).length;
+            overview.values.forEach((value, index) => { value.textContent = totals[index + 1]; });
+            overview.note.textContent = pending
+                ? `共 ${entries.length} 项作业 · 正在查询 ${pending} 项…`
+                : `共 ${entries.length} 项作业 · ${failed ? `${failed} 项查询失败，请打开作业确认` : '状态已更新，已忽略作业不计入待提交'}`;
+            filterButtons.forEach((button, index) => {
+                button.textContent = `${modes[index].label} ${totals[index]}`;
+                button.setAttribute('aria-pressed', String(activeFilter === index));
+            });
+            for (const entry of entries) {
+                const { hw, hint, status, extra, ignored, name } = entry;
+                const hidden = !modes[activeFilter].matches(entry);
+                // 在禁用按钮/隐藏行之前转移焦点，避免键盘用户的焦点落回页面顶部。
+                if ((hidden && hw.contains(document.activeElement)) || (status === 0 && hint === document.activeElement)) {
+                    filterButtons[activeFilter].focus();
+                }
+                hint.className = `ustc-bb-hint ustc-bb-hint-${status}`;
+                hint.textContent = `${hintText[status]}${extra ? ' ' + extra : ''}`;
+                hint.disabled = status === 0;
+                hint.setAttribute('aria-pressed', String(ignored));
+                const action = ignored ? '取消忽略此作业' : '忽略此作业';
+                hint.title = status === 0 ? '正在查询作业状态' : `点击${action}`;
+                hint.setAttribute('aria-label', `${name}：${hint.textContent}，${status === 0 ? '请稍候' : action}`);
+                hw.classList.toggle('ustc-bb-ignored', ignored);
+                hw.dataset.status = status;
+                hw.hidden = hidden;
             }
-            setHint(status, extra);
-            counts.set(contentId, status);
-            pending--;
-            syncPortal(courseId);
-            hint.title = ignored ? '点击取消忽略此作业' : '点击忽略此作业';
-            hint.addEventListener('click', (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                ignoreHw(courseId, contentId, !ignored);
-                ignored = !ignored;
-                if (ignored) {
-                    linkEl.closest('li')?.classList.add('ustc-bb-ignored');
-                    setHint(4);
-                    hint.title = '点击取消忽略此作业';
-                    counts.set(contentId, 4);
-                    syncPortal(courseId);
+            empty.hidden = totals[activeFilter] > 0;
+            empty.textContent = pending ? '正在查询作业，请稍候…' : '当前筛选下没有作业。';
+        }
+
+        function syncPortal() {
+            if (entries.some(entry => entry.status === 0)) return;
+            for (const courseId of new Set(entries.map(entry => entry.courseId))) {
+                const courseEntries = entries.filter(entry => entry.courseId === courseId);
+                const unsub = courseEntries.some(entry => entry.status === 3)
+                    ? -1 : courseEntries.filter(entry => entry.status === 2).length;
+                syncPortalCount(courseId, unsub, location.href);
+            }
+        }
+
+        async function refresh(entry) {
+            entry.status = 0;
+            entry.extra = null;
+            render();
+            [entry.status, entry.extra] = await queryStatus(entry.link);
+            render();
+            syncPortal();
+        }
+
+        for (const entry of entries) {
+            entry.hint.addEventListener('click', event => {
+                event.preventDefault();
+                event.stopPropagation();
+                if (entry.status === 0) return;
+                ignoreHw(entry.courseId, entry.contentId, !entry.ignored);
+                entry.ignored = !entry.ignored;
+                if (entry.ignored) {
+                    entry.status = 4;
+                    entry.extra = null;
+                    render();
+                    syncPortal();
                 } else {
-                    linkEl.closest('li')?.classList.remove('ustc-bb-ignored');
-                    setHint(0);
-                    hint.title = '点击忽略此作业';
-                    counts.set(contentId, 0);
-                    pending++;
-                    queryStatus(link).then(([s, ex]) => {
-                        setHint(s, ex);
-                        counts.set(contentId, s);
-                        pending--;
-                        syncPortal(courseId);
-                    });
+                    refresh(entry);
                 }
             });
         }
-
-        for (const hw of hwList.children) {
-            process(hw);
-        }
+        render();
+        entries.filter(entry => !entry.ignored).forEach(refresh);
+        syncPortal();
     }
 
     // ---------- 主页「当前学期课程」：按未提交作业数排序 ----------
@@ -300,10 +435,25 @@
             const badge = a.appendChild(document.createElement('span'));
             badge.className = 'ustc-bb-hint ustc-bb-hint-0';
             badge.textContent = '作业查询中…';
-            badge.style.cursor = 'default';
-            return { li, a, courseId, badge, unsub: -1, hasHw: true };
+            li.classList.add('ustc-bb-course');
+            return { li, a, courseId, badge, unsub: -1, hasHw: true, ready: false };
         }).filter(Boolean);
         if (!items.length) return;
+        ul.classList.add('ustc-bb-course-list');
+        const overview = createOverview(ul, '课程概览', '有待交作业的课程优先显示，点击课程名称直达作业区。', ['已查到待交', '待办课程', '当前课程']);
+
+        function updateOverview() {
+            const pending = items.filter(item => !item.ready).length;
+            const failed = items.filter(item => item.ready && item.hasHw && item.unsub < 0).length;
+            overview.values[0].textContent = items.reduce((sum, item) => sum + Math.max(0, item.unsub), 0);
+            overview.values[1].textContent = items.filter(item => item.unsub > 0).length;
+            overview.values[2].textContent = items.length;
+            overview.note.textContent = pending
+                ? `正在查询 ${pending} 门课程，统计会自动更新…`
+                : failed ? `${failed} 门课程查询失败，待交统计可能不完整；请进入作业区确认。`
+                    : '按未提交数量排序 · 当日结果已缓存，进入作业区可更新状态';
+        }
+        updateOverview();
 
         // 当日缓存：同一天内不重复查询
         let cache = {};
@@ -331,6 +481,9 @@
                 item.badge.className = 'ustc-bb-hint ustc-bb-hint-3';
                 item.badge.textContent = '查询错误';
             }
+            item.li.dataset.status = item.unsub > 0 ? '2' : '0';
+            item.ready = true;
+            updateOverview();
         }
 
         const jobs = items.map(async (item) => {
