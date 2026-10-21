@@ -120,7 +120,7 @@
         .ustc-bb-course a:focus-visible { outline: 3px solid #2563eb; outline-offset: 3px; }
         .ustc-bb-course-list { padding: 0 !important; list-style: none; }
         .ustc-bb-course-list > .ustc-bb-course {
-            box-sizing: border-box; margin: 10px 0; padding: 14px 16px;
+            box-sizing: border-box; margin: 10px 0; padding: 14px 16px 14px 18px !important;
             border: 1px solid #dbe3ed; border-left: 3px solid #cbd5e1;
             border-radius: 10px; background: #fff; color: #52627a;
             line-height: 1.7; overflow-wrap: anywhere; list-style: none;
@@ -140,7 +140,7 @@
             .ustc-bb-stats { gap: 6px; }
             .ustc-bb-stat { padding: 10px 8px; }
             .ustc-bb-stat dd { font-size: 22px; }
-            .ustc-bb-course-list > .ustc-bb-course { padding: 12px; }
+            .ustc-bb-course-list > .ustc-bb-course { padding: 12px 12px 12px 16px !important; }
             .ustc-bb-course .ustc-bb-hint { display: flex; width: fit-content; margin-left: 0; }
         }
     `;
