@@ -8,12 +8,12 @@ const launcherPath = '/webapps/blackboard/execute/launcher';
 const assignmentPath = '/webapps/assignment/uploadAssignment';
 const scriptFile = new URL('../USTC-BB-Helper.user.js', import.meta.url);
 const courses = [
-    { id: '_103_1', title: '线性代数 B', teacher: '示例教师 · 数学科学学院', states: ['submitted', 'graded'] },
-    { id: '_101_1', title: '数据结构与算法', teacher: '示例教师 · 计算机科学与技术学院', states: ['pending', 'pending', 'submitted', 'graded', 'error', 'pending'] },
+    { id: '_103_1', title: 'MATH1007.01.2026FA: 线性代数 B', teacher: '示例教师 · 数学科学学院', states: ['submitted', 'graded'] },
+    { id: '_101_1', title: 'CS2502A.02.2026FA: 数据结构与算法', teacher: '示例教师 · 计算机科学与技术学院', states: ['pending', 'pending', 'submitted', 'graded', 'error', 'pending'] },
     { id: '_104_1', title: '学术交流与职业发展', teacher: '示例教师 · 公共课程', states: null },
-    { id: '_102_1', title: '概率论与数理统计', teacher: '示例教师 · 数学科学学院', states: ['pending', 'submitted'] },
-    { id: '_105_1', title: '大学物理实验', teacher: '示例教师 · 物理学院', error: true },
-    { id: '_106_1', title: '人工智能基础：从数学原理到现代机器学习系统的设计与应用（跨学科联合课程）', teacher: '示例教师 · 人工智能与数据科学', states: ['graded'] },
+    { id: '_102_1', title: 'MATH2006.01.2026FA: 概率论与数理统计', teacher: '示例教师 · 数学科学学院', states: ['pending', 'submitted'] },
+    { id: '_105_1', title: 'PHYS1004.03.2026FA: 大学物理实验', teacher: '示例教师 · 物理学院', error: true },
+    { id: '_106_1', title: 'CS3001.01.2026FA: 人工智能基础：从数学原理到现代机器学习系统的设计与应用（跨学科联合课程）', teacher: '示例教师 · 人工智能与数据科学', states: ['graded'] },
 ];
 const titles = [
     '第三章 · 栈与队列',
@@ -26,6 +26,7 @@ const titles = [
 const esc = (text) => String(text).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 const listUrl = id => `${listPath}?course_id=${id}&content_id=_area_1`;
 const assignmentUrl = (id, index) => `${assignmentPath}?course_id=${id}&content_id=${id}_hw${index + 1}`;
+const itemIcon = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><rect x="6" y="3" width="20" height="26" rx="2" fill="#e9edf1" stroke="#8496a8"/><path d="M11 10h10M11 15h10M11 20h7" stroke="#6b8195" stroke-width="2"/></svg>')}`;
 
 const baseCss = `
     * { box-sizing: border-box; }
@@ -39,6 +40,7 @@ const baseCss = `
     .preview-note button { font: inherit; color: #195789; background: white; border: 1px solid #bcc6d0; border-radius: 4px; padding: 4px 10px; cursor: pointer; }
     h1 { font-size: 24px; margin: 0 0 20px; } h2 { font-size: 17px; margin: 0; }
     .portal-grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(230px, 1fr); gap: 22px; }
+    .portal-grid.portal-compact { grid-template-columns: 260px minmax(0, 1fr); }
     .portlet { background: white; border: 1px solid #ced4db; min-width: 0; }
     .portlet > h2 { padding: 12px 16px; background: #e9edf1; border-bottom: 1px solid #ced4db; }
     .portlet .portlet-body { padding: 16px; }
@@ -49,18 +51,28 @@ const baseCss = `
     .announcement { padding: 0 0 14px; margin: 0 0 14px; border-bottom: 1px solid #e3e6ea; }
     .announcement p { margin: 6px 0 0; color: #687381; }
     .content-box { background: white; border: 1px solid #ced4db; padding: 20px; }
-    #content_listContainer { list-style: none; margin: 0; padding: 0; }
+    #content_listContainer { list-style: none; margin: -20px; padding: 0; }
     #content_listContainer > li { padding: 18px 10px; border-bottom: 1px solid #dce1e6; }
+    #content_listContainer > li::after { content: ''; display: block; clear: both; }
+    .item_icon { float: left; width: 32px; height: 32px; margin: 2px 14px 0 0; }
+    #content_listContainer .item, #content_listContainer .details { margin-left: 46px; }
     #content_listContainer h3 { margin: 0 0 8px; font-size: 16px; }
     .details { color: #687381; font-size: 13px; } .details p { margin: 4px 0; }
-    @media (max-width: 650px) { .portal-grid { grid-template-columns: 1fr; } main { padding: 16px 12px; } header { padding: 14px 16px; } header span { display: block; margin: 0; } nav { padding: 10px 16px; } .content-box { padding: 12px; } }
+    @media (max-width: 650px) { .portal-grid, .portal-grid.portal-compact { grid-template-columns: 1fr; } main { padding: 16px 12px; } header { padding: 14px 16px; } header span { display: block; margin: 0; } nav { padding: 10px 16px; } .content-box { padding: 12px; } #content_listContainer { margin: -12px; } }
 `;
 
-function shell(title, body, baseline = false) {
+function shell(title, body, baseline = false, compact = false, courseId = '_101_1') {
+    const compareParams = new URLSearchParams();
+    if (!baseline) compareParams.set('baseline', '1');
+    if (compact) compareParams.set('compact', '1');
+    if (title === '作业区') compareParams.set('course_id', courseId);
+    const widthParams = new URLSearchParams();
+    if (baseline) widthParams.set('baseline', '1');
+    if (!compact) widthParams.set('compact', '1');
     return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${esc(title)} · BB 助手本地预览</title><style>${baseCss}</style></head><body>
         <header><strong>网络教学平台</strong><span>Blackboard · 本地模拟页面</span></header>
         <nav aria-label="预览导航"><a href="${portalPath}">我的主页</a><a href="${listUrl('_101_1')}">数据结构 · 作业区</a></nav>
-        <main><div class="preview-note"><span>仅含虚构数据，不连接学校平台。${baseline ? '当前未加载助手。' : '正在加载仓库中的助手脚本。'}</span><button type="button" id="reset-preview">重置演示数据</button><a href="?${baseline ? '' : 'baseline=1&'}${title === '作业区' ? 'course_id=_101_1' : ''}">${baseline ? '查看优化效果' : '查看原始页面'}</a></div>${body}</main>
+        <main><div class="preview-note"><span>仅含虚构数据，不连接学校平台。${baseline ? '当前未加载助手。' : '正在加载仓库中的助手脚本。'}</span><button type="button" id="reset-preview">重置演示数据</button><a href="?${esc(compareParams.toString())}">${baseline ? '查看优化效果' : '查看原始页面'}</a>${title === '我的主页' ? `<a href="?${esc(widthParams.toString())}">${compact ? '查看标准门户列' : '查看 260px 窄门户列'}</a>` : ''}</div>${body}</main>
         <script>
             function resetFixture() {
                 for (const key of Object.keys(localStorage)) {
@@ -74,15 +86,15 @@ function shell(title, body, baseline = false) {
         </script>${baseline ? '' : '<script src="/USTC-BB-Helper.user.js"></script>'}</body></html>`;
 }
 
-function portal(baseline) {
+function portal(baseline, compact) {
     const rows = courses.map(course => `<li><a href="${launcherPath}?type=Course&id=${course.id}&url=">${esc(course.title)}</a><span class="course-meta">${esc(course.teacher)}</span></li>`).join('');
-    return shell('我的主页', `<h1>我的主页</h1><div class="portal-grid"><section class="portlet"><h2>当前学期课程</h2><div class="portlet-body"><ul class="courseListing">${rows}</ul></div></section><aside class="portlet"><h2>通知与公告</h2><div class="portlet-body"><div class="announcement"><strong>欢迎使用网络教学平台</strong><p>课程资料、作业和学习通知可以在对应课程中查看。</p></div><div class="announcement"><strong>学习小贴士</strong><p>请及时关注各门课程的作业要求与提交状态。</p></div><a href="${listUrl('_101_1')}">打开作业区示例 →</a></div></aside></div>`, baseline);
+    return shell('我的主页', `<h1>我的主页</h1><div class="portal-grid${compact ? ' portal-compact' : ''}"><section class="portlet"><h2>当前学期课程</h2><div class="portlet-body"><ul class="courseListing">${rows}</ul></div></section><aside class="portlet"><h2>通知与公告</h2><div class="portlet-body"><div class="announcement"><strong>欢迎使用网络教学平台</strong><p>课程资料、作业和学习通知可以在对应课程中查看。</p></div><div class="announcement"><strong>学习小贴士</strong><p>请及时关注各门课程的作业要求与提交状态。</p></div><a href="${listUrl('_101_1')}">打开作业区示例 →</a></div></aside></div>`, baseline, compact);
 }
 
 function homework(course, baseline) {
-    const rows = (course.states || []).map((state, index) => `<li id="content${index + 1}"><div class="item"><h3><a href="${assignmentUrl(course.id, index)}">${esc(titles[index] || `练习 ${index + 1}`)}</a></h3></div><div class="details"><p>请阅读课程讲义，按作业说明完成并上传解答文件。</p><p>附件：<a href="#instructions">作业说明.pdf</a> · 支持 PDF 格式</p></div></li>`).join('');
-    const resource = '<li id="course-resource"><div class="item"><h3><a href="#course-resource">课程资料 · 作业规范与参考资料</a></h3></div><div class="details"><p>这是普通课程资料，不是作业；切换作业状态筛选时应始终保留。</p></div></li>';
-    return shell('作业区', `<p><a href="${portalPath}">我的主页</a> / ${esc(course.title)}</p><h1 id="pageTitleText"><span>作业区</span></h1><section class="content-box"><ul id="content_listContainer">${rows}${resource}</ul></section>`, baseline);
+    const rows = (course.states || []).map((state, index) => `<li id="content${index + 1}" class="clearfix read"><img class="item_icon" src="${itemIcon}" alt=""><div class="item clearfix"><h3><a href="${assignmentUrl(course.id, index)}"><span>${esc(titles[index] || `练习 ${index + 1}`)}</span></a></h3></div><div class="details"><div class="vtbegenerated"><p>请阅读课程讲义，按作业说明完成并上传解答文件。</p><p>附件：<a href="#instructions">作业说明.pdf</a> · 支持 PDF 格式</p></div></div></li>`).join('');
+    const resource = `<li id="course-resource" class="clearfix read"><img class="item_icon" src="${itemIcon}" alt=""><div class="item clearfix"><h3><a href="#course-resource"><span>课程资料 · 作业规范与参考资料</span></a></h3></div><div class="details"><div class="vtbegenerated"><p>这是普通课程资料，不是作业；切换作业状态筛选时应始终保留。</p></div></div></li>`;
+    return shell('作业区', `<p><a href="${portalPath}">我的主页</a> / ${esc(course.title)}</p><h1 id="pageTitleText"><span>作业区</span></h1><section class="content-box"><ul id="content_listContainer" class="contentList">${rows}${resource}</ul></section>`, baseline, false, course.id);
 }
 
 const server = http.createServer(async (request, response) => {
@@ -92,20 +104,20 @@ const server = http.createServer(async (request, response) => {
             'Content-Type': type,
             'Cache-Control': 'no-store',
             // Block external requests even if stale local preview storage contains a remote URL.
-            'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; base-uri 'none'; form-action 'none'",
+            'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; base-uri 'none'; form-action 'none'",
         });
         response.end(body);
     };
     try {
         if (url.pathname === '/') {
-            response.writeHead(302, { Location: portalPath });
+            response.writeHead(302, { Location: `${portalPath}${url.search}` });
             response.end();
         } else if (url.pathname === '/favicon.ico') {
             send(204, '');
         } else if (url.pathname === '/USTC-BB-Helper.user.js') {
             send(200, await readFile(scriptFile), 'text/javascript; charset=utf-8');
         } else if (url.pathname === portalPath) {
-            send(200, portal(url.searchParams.has('baseline')));
+            send(200, portal(url.searchParams.has('baseline'), url.searchParams.get('compact') === '1'));
         } else {
             const course = courses.find(item => item.id === (url.searchParams.get('course_id') || url.searchParams.get('id')));
             if (!course) return send(404, 'Unknown fixture course');
