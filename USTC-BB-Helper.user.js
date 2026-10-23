@@ -3,7 +3,7 @@
 // @name:zh-CN   USTC BB 助手
 // @license      gpl-3.0
 // @namespace    ustc-bb-helper
-// @version      1.4.2
+// @version      1.4.3
 // @description  Enhancements for USTC Blackboard: course and homework overviews, filterable homework status badges with keyboard-accessible ignore controls, courses sorted by unsubmitted homework with direct links, personalized color theme on all pages, auto login and off-campus authentication. Based on PRO's USTC Helper (GPL-3.0), no external dependencies.
 // @description:zh-CN  为中科大 bb 网络教学平台增强：课程与作业概览、提交状态筛选、支持键盘操作的忽略按钮；主页按未提交作业数排序，点击课程直达作业区；主页个性化主题颜色全站生效；自动登录及校外认证。基于 PRO 的 USTC Helper (GPL-3.0) bb 模块修复而来，无任何外部依赖。
 // @match        https://www.bb.ustc.edu.cn/*
@@ -196,6 +196,31 @@
         }
     }
 
+    // 已提交/已评分的作业不会变回未提交；长期缓存其 contentId，
+    // 主页每日查询时跳过（已提交作业的复查页服务器要 ~10 秒才返回，跳过后查询量大幅下降）
+    function getSubmitted() {
+        try {
+            return JSON.parse(localStorage.getItem('ustc-bb-submitted') || '{}');
+        } catch (e) {
+            return {};
+        }
+    }
+
+    function markSubmitted(contentId, submitted) {
+        if (!contentId) return;
+        try {
+            const all = getSubmitted();
+            if (submitted && !all[contentId]) {
+                all[contentId] = 1;
+                localStorage.setItem('ustc-bb-submitted', JSON.stringify(all));
+            } else if (!submitted && all[contentId]) {
+                // 作业区实时查询发现仍为未提交（如教师清空了提交），从缓存移除
+                delete all[contentId];
+                localStorage.setItem('ustc-bb-submitted', JSON.stringify(all));
+            }
+        } catch (e) { /* ignore */ }
+    }
+
     const today = new Date().toLocaleDateString('sv'); // YYYY-MM-DD 本地时区
 
     // 使主页缓存中某门课的条目失效（忽略/提交作业后数目会变）
@@ -233,13 +258,44 @@
         else localStorage.removeItem('ustc-bb-ignored:' + courseId);
     }
 
+    // BB 响应较慢，限制全局并发避免大量并行请求把课程拖成查询失败
+    const MAX_CONCURRENT = 6;
+    let activeFetches = 0;
+    const fetchQueue = [];
+    function pumpFetchQueue() {
+        while (activeFetches < MAX_CONCURRENT && fetchQueue.length) {
+            const job = fetchQueue.shift();
+            activeFetches++;
+            fetch(job.url).then(job.resolve, job.reject)
+                .finally(() => { activeFetches--; pumpFetchQueue(); });
+        }
+    }
+    function limitedFetch(url) {
+        return new Promise((resolve, reject) => {
+            fetchQueue.push({ url, resolve, reject });
+            pumpFetchQueue();
+        });
+    }
+
+    // 失败重试一次；最终失败返回 null。重试直接进入队列尾部，不用 setTimeout
+    // （后台标签页的定时器会被 Chrome 节流，可能延迟到一分钟才触发）
+    async function fetchWithRetry(url) {
+        for (let attempt = 0; attempt < 2; attempt++) {
+            try {
+                const r = await limitedFetch(url);
+                if (r.ok) return r;
+                log(`Failed to fetch "${r.url}": ${r.status} ${r.statusText}`);
+            } catch (e) {
+                console.warn(`[USTC BB Helper] Fetch "${url}" failed:`, e);
+            }
+        }
+        return null;
+    }
+
     async function queryStatus(link) {
         try {
-            const r = await fetch(link);
-            if (!r.ok) {
-                log(`Failed to fetch "${r.url}": ${r.status} ${r.statusText}`);
-                return [3, null];
-            }
+            const r = await fetchWithRetry(link);
+            if (!r) return [3, null];
             const doc = new DOMParser().parseFromString(await r.text(), 'text/html');
             const title = doc.getElementById('pageTitleText')?.textContent?.trim() ?? '';
             if (title.startsWith('上载作业')) {
@@ -264,19 +320,20 @@
     // u: 未提交数（-1 表示查询出错）；hw: 是否存在作业区；url: 作业区地址
     async function countUnsubmitted(courseId) {
         try {
-            const r = await fetch(`/webapps/blackboard/execute/launcher?type=Course&id=${courseId}&url=`);
-            if (!r.ok) return { u: -1, hw: true, url: null };
+            const r = await fetchWithRetry(`/webapps/blackboard/execute/launcher?type=Course&id=${courseId}&url=`);
+            if (!r) return { u: -1, hw: true, url: null };
             const doc = new DOMParser().parseFromString(await r.text(), 'text/html');
             const anchors = Array.from(doc.querySelectorAll('a[href*="listContent.jsp"]'));
             const hwAnchor = anchors.find(a => a.textContent.includes('作业区')) || anchors[0];
             if (!hwAnchor) return { u: 0, hw: false, url: null };
             const hwUrl = new URL(hwAnchor.getAttribute('href'), location.origin).href;
-            const r2 = await fetch(hwUrl);
-            if (!r2.ok) return { u: -1, hw: true, url: hwUrl };
+            const r2 = await fetchWithRetry(hwUrl);
+            if (!r2) return { u: -1, hw: true, url: hwUrl };
             const doc2 = new DOMParser().parseFromString(await r2.text(), 'text/html');
             const list = doc2.getElementById('content_listContainer');
             if (!list) return { u: 0, hw: true, url: hwUrl };
             const ignored = getIgnored(courseId);
+            const submitted = getSubmitted();
             let unsub = 0, failed = false;
             const jobs = [];
             for (const hw of list.children) {
@@ -287,8 +344,10 @@
                 const link = new URL(href, location.origin);
                 const contentId = link.searchParams.get('content_id');
                 if (contentId && ignored.includes(contentId)) continue;
+                if (contentId && submitted[contentId]) continue; // 已提交，不计入也不查询
                 jobs.push(queryStatus(link.href).then(([s]) => {
                     if (s === 2) unsub++;
+                    else if (s === 1 || s === 5) markSubmitted(contentId, true);
                     if (s === 3) failed = true;
                 }));
             }
@@ -403,7 +462,8 @@
                 const courseEntries = entries.filter(entry => entry.courseId === courseId);
                 const unsub = courseEntries.some(entry => entry.status === 3)
                     ? -1 : courseEntries.filter(entry => entry.status === 2).length;
-                syncPortalCount(courseId, unsub, location.href);
+                // 失败结果不写回主页缓存，避免失败后当天不再重查
+                if (unsub >= 0) syncPortalCount(courseId, unsub, location.href);
             }
         }
 
@@ -412,6 +472,9 @@
             entry.extra = null;
             render();
             [entry.status, entry.extra] = await queryStatus(entry.link);
+            // 维护已提交缓存：提交过的不必再在主页每日查询中重复抓取
+            if (entry.status === 1 || entry.status === 5) markSubmitted(entry.contentId, true);
+            else if (entry.status === 2) markSubmitted(entry.contentId, false);
             render();
             syncPortal();
         }
@@ -527,8 +590,9 @@
 
         const jobs = items.map(async (item) => {
             const cached = cache[item.courseId];
-            // 旧版本缓存没有 url 字段，视为过期并重新查询
-            if (cached && typeof cached.u === 'number' && 'url' in cached) {
+            // 旧版本缓存没有 url 字段、以及查询失败（u < 0）的缓存，都视为过期并重新查询
+            const cachedFailed = cached && cached.hw && cached.u < 0;
+            if (cached && typeof cached.u === 'number' && 'url' in cached && !cachedFailed) {
                 item.unsub = cached.u;
                 item.hasHw = cached.hw;
                 if (cached.url) item.a.href = cached.url; // 直达作业区
@@ -537,8 +601,11 @@
                 item.unsub = res.u;
                 item.hasHw = res.hw;
                 if (res.url) item.a.href = res.url; // 直达作业区
-                cache[item.courseId] = res;
-                saveCache();
+                // 失败结果不缓存，下次刷新自动重查
+                if (!(res.hw && res.u < 0)) {
+                    cache[item.courseId] = res;
+                    saveCache();
+                }
                 log(`Course ${item.courseId}: ${res.hw ? `unsubmitted ${res.u}` : 'no homework area'}.`);
             }
             updateBadge(item);
