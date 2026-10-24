@@ -1,5 +1,6 @@
 import http from 'node:http';
 import { readFile } from 'node:fs/promises';
+import { setTimeout as delay } from 'node:timers/promises';
 
 // Local fixtures only: no requests to Blackboard or external assets.
 const portalPath = '/webapps/portal/execute/tabs/tabAction';
@@ -131,6 +132,9 @@ const server = http.createServer(async (request, response) => {
                 if (index < 0) return send(404, 'Unknown fixture assignment');
                 const state = course.states[index];
                 if (state === 'error') return send(503, 'Simulated assignment query error');
+                if (state !== 'pending' && Number(process.env.BB_PREVIEW_SLOW_MS) > 0) {
+                    await delay(Number(process.env.BB_PREVIEW_SLOW_MS));
+                }
                 const title = state === 'pending' ? '上载作业' : '复查提交历史记录';
                 const grade = state === 'graded' ? '<input id="aggregateGrade" value="96" aria-label="成绩"><span id="aggregateGrade_pointsPossible"> / 100</span>' : '';
                 send(200, shell(title, `<h1 id="pageTitleText">${title}</h1><section class="content-box"><h2>${esc(titles[index])}</h2><p>这是本地模拟作业页面。</p>${grade}<p><a href="${listUrl(course.id)}">返回作业区</a></p></section>`));
@@ -144,4 +148,5 @@ const server = http.createServer(async (request, response) => {
         else response.end();
     }
 });
-server.listen(4173, '127.0.0.1', () => console.log('BB Helper preview: http://127.0.0.1:4173'));
+const port = Number(process.env.BB_PREVIEW_PORT) || 4173;
+server.listen(port, '127.0.0.1', () => console.log(`BB Helper preview: http://127.0.0.1:${port}`));

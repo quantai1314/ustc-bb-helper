@@ -3,7 +3,7 @@
 // @name:zh-CN   USTC BB 助手
 // @license      gpl-3.0
 // @namespace    ustc-bb-helper
-// @version      1.4.3
+// @version      1.4.4
 // @description  Enhancements for USTC Blackboard: course and homework overviews, filterable homework status badges with keyboard-accessible ignore controls, courses sorted by unsubmitted homework with direct links, personalized color theme on all pages, auto login and off-campus authentication. Based on PRO's USTC Helper (GPL-3.0), no external dependencies.
 // @description:zh-CN  为中科大 bb 网络教学平台增强：课程与作业概览、提交状态筛选、支持键盘操作的忽略按钮；主页按未提交作业数排序，点击课程直达作业区；主页个性化主题颜色全站生效；自动登录及校外认证。基于 PRO 的 USTC Helper (GPL-3.0) bb 模块修复而来，无任何外部依赖。
 // @match        https://www.bb.ustc.edu.cn/*
@@ -196,8 +196,8 @@
         }
     }
 
-    // 已提交/已评分的作业不会变回未提交；长期缓存其 contentId，
-    // 主页每日查询时跳过（已提交作业的复查页服务器要 ~10 秒才返回，跳过后查询量大幅下降）
+    // 已提交/已评分的作业不会变回未提交；长期缓存其 contentId、状态和分数，
+    // 后续查询时跳过（已提交作业的复查页响应很慢，跳过后查询量大幅下降）
     function getSubmitted() {
         try {
             return JSON.parse(localStorage.getItem('ustc-bb-submitted') || '{}');
@@ -206,14 +206,15 @@
         }
     }
 
-    function markSubmitted(contentId, submitted) {
+    function markSubmitted(contentId, submitted, status = 1, extra = null) {
         if (!contentId) return;
         try {
             const all = getSubmitted();
-            if (submitted && !all[contentId]) {
-                all[contentId] = 1;
+            const cached = all[contentId];
+            if (submitted && (!cached || cached.s !== status || cached.e !== extra)) {
+                all[contentId] = { s: status, e: extra };
                 localStorage.setItem('ustc-bb-submitted', JSON.stringify(all));
-            } else if (!submitted && all[contentId]) {
+            } else if (!submitted && cached) {
                 // 作业区实时查询发现仍为未提交（如教师清空了提交），从缓存移除
                 delete all[contentId];
                 localStorage.setItem('ustc-bb-submitted', JSON.stringify(all));
@@ -318,7 +319,7 @@
 
     // 统计一门课作业区里「未提交」的数量（不含已忽略）；返回 { u, hw, url }
     // u: 未提交数（-1 表示查询出错）；hw: 是否存在作业区；url: 作业区地址
-    async function countUnsubmitted(courseId) {
+    async function countUnsubmitted(courseId, onHomeworkUrl) {
         try {
             const r = await fetchWithRetry(`/webapps/blackboard/execute/launcher?type=Course&id=${courseId}&url=`);
             if (!r) return { u: -1, hw: true, url: null };
@@ -327,6 +328,7 @@
             const hwAnchor = anchors.find(a => a.textContent.includes('作业区')) || anchors[0];
             if (!hwAnchor) return { u: 0, hw: false, url: null };
             const hwUrl = new URL(hwAnchor.getAttribute('href'), location.origin).href;
+            onHomeworkUrl?.(hwUrl);
             const r2 = await fetchWithRetry(hwUrl);
             if (!r2) return { u: -1, hw: true, url: hwUrl };
             const doc2 = new DOMParser().parseFromString(await r2.text(), 'text/html');
@@ -345,9 +347,9 @@
                 const contentId = link.searchParams.get('content_id');
                 if (contentId && ignored.includes(contentId)) continue;
                 if (contentId && submitted[contentId]) continue; // 已提交，不计入也不查询
-                jobs.push(queryStatus(link.href).then(([s]) => {
+                jobs.push(queryStatus(link.href).then(([s, extra]) => {
                     if (s === 2) unsub++;
-                    else if (s === 1 || s === 5) markSubmitted(contentId, true);
+                    else if (s === 1 || s === 5) markSubmitted(contentId, true, s, extra);
                     if (s === 3) failed = true;
                 }));
             }
@@ -370,6 +372,7 @@
         }
 
         // 先收集完整列表；筛选只改变可见性，不影响统计与主页缓存。
+        const submitted = getSubmitted();
         const entries = Array.from(hwList.children).flatMap(hw => {
             const linkEl = hw.querySelector('h3 > a');
             if (!linkEl) return [];
@@ -388,7 +391,10 @@
             const courseId = params.get('course_id');
             const contentId = params.get('content_id');
             const ignored = getIgnored(courseId).includes(contentId);
-            return [{ hw, hint, toggle, link, name, courseId, contentId, ignored, status: ignored ? 4 : 0, extra: null }];
+            const cached = contentId ? submitted[contentId] : null;
+            const cachedStatus = cached ? (cached.s === 5 ? 5 : 1) : 0;
+            const cachedExtra = cached && cachedStatus === 5 ? cached.e : null;
+            return [{ hw, hint, toggle, link, name, courseId, contentId, ignored, cached: Boolean(cached), status: ignored ? 4 : cachedStatus, extra: cachedExtra }];
         });
         if (!entries.length) return;
 
@@ -473,7 +479,7 @@
             render();
             [entry.status, entry.extra] = await queryStatus(entry.link);
             // 维护已提交缓存：提交过的不必再在主页每日查询中重复抓取
-            if (entry.status === 1 || entry.status === 5) markSubmitted(entry.contentId, true);
+            if (entry.status === 1 || entry.status === 5) markSubmitted(entry.contentId, true, entry.status, entry.extra);
             else if (entry.status === 2) markSubmitted(entry.contentId, false);
             render();
             syncPortal();
@@ -497,7 +503,7 @@
             });
         }
         render();
-        entries.filter(entry => !entry.ignored).forEach(refresh);
+        entries.filter(entry => !entry.ignored && !entry.cached).forEach(refresh);
         syncPortal();
     }
 
@@ -597,7 +603,7 @@
                 item.hasHw = cached.hw;
                 if (cached.url) item.a.href = cached.url; // 直达作业区
             } else {
-                const res = await countUnsubmitted(item.courseId);
+                const res = await countUnsubmitted(item.courseId, url => { item.a.href = url; });
                 item.unsub = res.u;
                 item.hasHw = res.hw;
                 if (res.url) item.a.href = res.url; // 直达作业区
