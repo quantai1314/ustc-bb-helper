@@ -15,6 +15,7 @@ const courses = [
     { id: '_102_1', title: 'MATH2006.01.2026FA: 概率论与数理统计', teacher: '示例教师 · 数学科学学院', states: ['pending', 'submitted'] },
     { id: '_105_1', title: 'PHYS1004.03.2026FA: 大学物理实验', teacher: '示例教师 · 物理学院', error: true },
     { id: '_106_1', title: 'CS3001.01.2026FA: 人工智能基础：从数学原理到现代机器学习系统的设计与应用（跨学科联合课程）', teacher: '示例教师 · 人工智能与数据科学', states: ['graded'] },
+    { id: '_107_1', title: 'CS4001.01.2026FA: 空作业区示例', teacher: '示例教师 · 计算机科学与技术学院', states: [] },
 ];
 const titles = [
     '第三章 · 栈与队列',
