@@ -79,11 +79,29 @@ function shell(title, body, baseline = false, compact = false, courseId = '_101_
         <nav aria-label="预览导航"><a href="${portalPath}">我的主页</a><a href="${listUrl('_101_1')}">数据结构 · 作业区</a></nav>
         <main><div class="preview-note"><span>仅含虚构数据，不连接学校平台。${baseline ? '当前未加载助手。' : '正在加载仓库中的助手脚本。'}</span><button type="button" id="reset-preview">重置演示数据</button><a href="?${esc(compareParams.toString())}">${baseline ? '查看优化效果' : '查看原始页面'}</a>${title === '我的主页' ? `<a href="?${esc(widthParams.toString())}">${compact ? '查看标准门户列' : '查看 260px 窄门户列'}</a>` : ''}</div>${body}</main>
         <script>
+            ${process.env.BB_PREVIEW_PROTOTYPE === '0' ? '' : `
+            // Blackboard's Prototype 1.7 replaces the native API and ignores its mapper.
+            function $A(iterable) {
+                if (!iterable) return [];
+                if ('toArray' in Object(iterable)) return iterable.toArray();
+                var length = iterable.length || 0, results = new Array(length);
+                while (length--) results[length] = iterable[length];
+                return results;
+            }
+            Array.from = $A;
+            `}
             function resetFixture() {
                 for (const key of Object.keys(localStorage)) {
                     if (key.startsWith('ustc-bb-')) localStorage.removeItem(key);
                 }
                 localStorage.setItem('ustc-bb-ignored:_101_1', JSON.stringify(['_101_1_hw6']));
+                ${process.env.BB_PREVIEW_LEGACY_ZERO_CACHE === '1' ? `
+                // Reproduce the incomplete 1.4.6 query being persisted as today's zero.
+                localStorage.setItem('ustc-bb-portal', JSON.stringify({
+                    date: new Date().toLocaleDateString('sv'),
+                    data: { '_102_1': { u: 0, hw: true, url: location.origin + '${listUrl('_102_1')}' } }
+                }));
+                ` : ''}
                 localStorage.setItem('bb-preview-seeded', '1');
             }
             if (!localStorage.getItem('bb-preview-seeded')) resetFixture();
