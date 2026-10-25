@@ -7,6 +7,7 @@ const portalPath = '/webapps/portal/execute/tabs/tabAction';
 const listPath = '/webapps/blackboard/content/listContent.jsp';
 const launcherPath = '/webapps/blackboard/execute/launcher';
 const assignmentPath = '/webapps/assignment/uploadAssignment';
+const gradesPath = '/webapps/bb-mygrades-BBLEARN/myGrades';
 const scriptFile = new URL('../USTC-BB-Helper.user.js', import.meta.url);
 const courses = [
     { id: '_103_1', title: 'MATH1007.01.2026FA: 线性代数 B', teacher: '示例教师 · 数学科学学院', states: ['submitted', 'graded'] },
@@ -28,6 +29,8 @@ const titles = [
 const esc = (text) => String(text).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 const listUrl = id => `${listPath}?course_id=${id}&content_id=_area_1`;
 const assignmentUrl = (id, index) => `${assignmentPath}?course_id=${id}&content_id=${id}_hw${index + 1}`;
+const homeworkTitle = (course, index) => process.env.BB_PREVIEW_EDGE_CASES === '1' && course.id === '_101_1' && index < 2
+    ? '重名作业' : titles[index] || `练习 ${index + 1}`;
 const itemIcon = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><rect x="6" y="3" width="20" height="26" rx="2" fill="#e9edf1" stroke="#8496a8"/><path d="M11 10h10M11 15h10M11 20h7" stroke="#6b8195" stroke-width="2"/></svg>')}`;
 
 const baseCss = `
@@ -94,13 +97,38 @@ function portal(baseline, compact) {
 }
 
 function homework(course, baseline) {
-    const rows = (course.states || []).map((state, index) => `<li id="content${index + 1}" class="clearfix read"><img class="item_icon" src="${itemIcon}" alt=""><div class="item clearfix"><h3><a href="${assignmentUrl(course.id, index)}"><span>${esc(titles[index] || `练习 ${index + 1}`)}</span></a></h3></div><div class="details"><div class="vtbegenerated"><p>请阅读课程讲义，按作业说明完成并上传解答文件。</p><p>附件：<a href="#instructions">作业说明.pdf</a> · 支持 PDF 格式</p></div></div></li>`).join('');
+    const rows = (course.states || []).map((state, index) => `<li id="content${index + 1}" class="clearfix read"><img class="item_icon" src="${itemIcon}" alt=""><div class="item clearfix"><h3><a href="${assignmentUrl(course.id, index)}"><span>${esc(homeworkTitle(course, index))}</span></a></h3></div><div class="details"><div class="vtbegenerated"><p>请阅读课程讲义，按作业说明完成并上传解答文件。</p><p>附件：<a href="#instructions">作业说明.pdf</a> · 支持 PDF 格式</p></div></div></li>`).join('');
     const resource = `<li id="course-resource" class="clearfix read"><img class="item_icon" src="${itemIcon}" alt=""><div class="item clearfix"><h3><a href="#course-resource"><span>课程资料 · 作业规范与参考资料</span></a></h3></div><div class="details"><div class="vtbegenerated"><p>这是普通课程资料，不是作业；切换作业状态筛选时应始终保留。</p></div></div></li>`;
     return shell('作业区', `<p><a href="${portalPath}">我的主页</a> / ${esc(course.title)}</p><h1 id="pageTitleText"><span>作业区</span></h1><section class="content-box"><ul id="content_listContainer" class="contentList">${rows}${resource}</ul></section>`, baseline, false, course.id);
 }
 
+function grades(course) {
+    const rows = (course.states || []).flatMap((state, index) => {
+        // An omitted grade row forces the script to verify this assignment separately.
+        if (state === 'error') return [];
+        const edgeCase = process.env.BB_PREVIEW_EDGE_CASES === '1';
+        const draft = edgeCase && course.id === '_102_1' && index === 0;
+        const manualZero = edgeCase && course.id === '_106_1';
+        // Blackboard can mark an already submitted item as "upcoming" in its row class.
+        const submittedUpcoming = course.id === '_103_1' && index === 0;
+        const rowClass = state === 'graded' ? 'graded_item_row'
+            : state === 'submitted' && !submittedUpcoming ? 'submitted_item_row' : 'upcoming_item_row';
+        const history = state !== 'pending' && !submittedUpcoming && !manualZero;
+        const name = esc(homeworkTitle(course, index));
+        const title = history ? `<a onclick="mygrades.loadContentFrame('${esc(`${assignmentUrl(course.id, index)}&action=showHistory`)}'); return false;">${name}</a>` : name;
+        const activity = draft ? '进行中' : state === 'graded' ? '已评分' : state === 'submitted' ? '已提交' : '尚未评分';
+        const grade = state === 'graded' ? manualZero ? '0.00000' : '96.00000' : '-';
+        const icon = draft ? '<img src="/images/ci/gradebook/in_progress.png" alt="进行中">'
+            : state === 'submitted' ? '<img src="/images/ci/gradebook/needs_grading.png" alt="需要评分">' : '';
+        return [`<div id="grade-${course.id}-${index}" class="sortable_item_row ${rowClass} row expanded"><div class="cell gradable">${title}<div class="activityType">到期日期: 2026-11-01</div><div class="itemCat">作业</div><div class="eval-links horizontal"></div></div><div class="cell activity timestamp"><span class="lastActivityDate"></span><span class="activityType">${activity}</span></div><div class="cell grade"><span class="grade">${grade}</span>${state === 'graded' ? '<span class="pointsPossible">/100</span>' : ''}</div><div class="cell gradeStatus">${icon}</div></div>`];
+    }).join('');
+    const calculated = '<div class="sortable_item_row calculatedRow row"><div class="cell gradable">总计</div><div class="cell grade"><span class="grade">96</span></div></div>';
+    return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>我的成绩</title></head><body><h1 id="pageTitleText">我的成绩</h1><div id="grades_wrapper">${calculated}${rows}</div></body></html>`;
+}
+
 const server = http.createServer(async (request, response) => {
     const url = new URL(request.url, 'http://127.0.0.1:4173');
+    if (process.env.BB_PREVIEW_LOG_REQUESTS === '1') console.log(`${request.method} ${url.pathname}${url.search}`);
     const send = (status, body, type = 'text/html; charset=utf-8') => {
         response.writeHead(status, {
             'Content-Type': type,
@@ -128,6 +156,10 @@ const server = http.createServer(async (request, response) => {
                 send(200, course.states ? `<a href="${listUrl(course.id)}">作业区</a>` : '<p>此课程暂无作业区。</p>');
             } else if (url.pathname === listPath || url.pathname === listPath.replace('listContent', 'listContentEditable')) {
                 send(200, homework(course, url.searchParams.has('baseline')));
+            } else if (url.pathname === gradesPath) {
+                if (process.env.BB_PREVIEW_GRADES_OFF === '1') return send(503, 'Simulated grade overview unavailable');
+                if (Number(process.env.BB_PREVIEW_GRADES_SLOW_MS) > 0) await delay(Number(process.env.BB_PREVIEW_GRADES_SLOW_MS));
+                send(200, grades(course));
             } else if (url.pathname === assignmentPath) {
                 const index = course.states?.findIndex((_, i) => `${course.id}_hw${i + 1}` === url.searchParams.get('content_id')) ?? -1;
                 if (index < 0) return send(404, 'Unknown fixture assignment');
@@ -138,7 +170,7 @@ const server = http.createServer(async (request, response) => {
                 }
                 const title = state === 'pending' ? '上载作业' : '复查提交历史记录';
                 const grade = state === 'graded' ? '<input id="aggregateGrade" value="96" aria-label="成绩"><span id="aggregateGrade_pointsPossible"> / 100</span>' : '';
-                send(200, shell(title, `<h1 id="pageTitleText">${title}</h1><section class="content-box"><h2>${esc(titles[index])}</h2><p>这是本地模拟作业页面。</p>${grade}<p><a href="${listUrl(course.id)}">返回作业区</a></p></section>`));
+                send(200, shell(title, `<h1 id="pageTitleText">${title}</h1><section class="content-box"><h2>${esc(homeworkTitle(course, index))}</h2><p>这是本地模拟作业页面。</p>${grade}<p><a href="${listUrl(course.id)}">返回作业区</a></p></section>`));
             } else {
                 send(404, 'Not found');
             }
