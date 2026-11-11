@@ -3,7 +3,7 @@
 // @name:zh-CN   USTC BB 助手
 // @license      gpl-3.0
 // @namespace    ustc-bb-helper
-// @version      1.4.7
+// @version      1.4.8
 // @description  Enhancements for USTC Blackboard: course and homework overviews, filterable homework status badges with keyboard-accessible ignore controls, courses sorted by unsubmitted homework with direct links, personalized color theme on all pages, auto login and off-campus authentication. Based on PRO's USTC Helper (GPL-3.0), no external dependencies.
 // @description:zh-CN  为中科大 bb 网络教学平台增强：课程与作业概览、提交状态筛选、支持键盘操作的忽略按钮；主页按未提交作业数排序，点击课程直达作业区；主页个性化主题颜色全站生效；自动登录及校外认证。基于 PRO 的 USTC Helper (GPL-3.0) bb 模块修复而来，无任何外部依赖。
 // @match        https://www.bb.ustc.edu.cn/*
@@ -80,7 +80,7 @@
         .ustc-bb-stat { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 8px; }
         .ustc-bb-stat dt { font-size: 12px; color: #52627a; }
         .ustc-bb-stat dd { margin: 0; color: #172b4d; font-size: 21px; font-weight: 700; line-height: 1.4; font-variant-numeric: tabular-nums; }
-        .ustc-bb-stat:first-child dd { color: #b42318; }
+        .ustc-bb-stat dd.ustc-bb-stat-alert { color: #b42318; }
         .ustc-bb-filters { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; }
         .ustc-bb-filters button {
             appearance: none; display: inline-flex; align-items: center; gap: 8px;
@@ -113,21 +113,27 @@
             text-shadow: none;
         }
         .ustc-bb-hint::before { content: ""; flex: 0 0 6px; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
-        .ustc-bb-ignore {
+        /* 查询中的圆点轻微呼吸，区分「正在查」与「卡住了」；尊重系统减少动态效果设置。 */
+        @keyframes ustc-bb-pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .3; transform: scale(.6); } }
+        .ustc-bb-hint-busy::before { animation: ustc-bb-pulse 1.4s ease-in-out infinite; }
+        @media (prefers-reduced-motion: reduce) { .ustc-bb-hint-busy::before { animation: none; } }
+        .ustc-bb-ignore, .ustc-bb-refresh {
             appearance: none; min-height: 32px; padding: 4px 9px; margin: 0;
             border: 1px solid #cbd5e1; border-radius: 6px; background: #fff;
             color: #52627a; font-size: 12px; font-weight: 400; line-height: 1.6;
             cursor: pointer; box-shadow: none; text-shadow: none; white-space: nowrap;
         }
-        .ustc-bb-ignore:hover:not(:disabled) { color: #17365d; border-color: #7185a2; background: #eef2f7; }
+        .ustc-bb-ignore:hover:not(:disabled), .ustc-bb-refresh:hover:not(:disabled) { color: #17365d; border-color: #7185a2; background: #eef2f7; }
         .ustc-bb-ignore:disabled { cursor: wait; color: #66758a; background: #f1f4f8; }
+        .ustc-bb-refresh { margin-top: 12px; padding: 4px 12px; }
+        .ustc-bb-refresh:disabled { cursor: default; color: #8a97a8; background: #f1f4f8; }
         .ustc-bb-hw-actions { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 8px; max-width: 100%; vertical-align: middle; }
         .ustc-bb-hint-0, .ustc-bb-hint-4 { color: #475569; background: #edf1f5; }
         .ustc-bb-hint-1 { color: #166534; background: #e8f5ec; }
         .ustc-bb-hint-2 { color: #b42318; background: #fff0ed; }
         .ustc-bb-hint-3 { color: #854d0e; background: #fff6d9; }
         .ustc-bb-hint-5 { color: #1d4ed8; background: #eaf1ff; }
-        .ustc-bb-ignore:focus-visible, .ustc-bb-filters button:focus-visible,
+        .ustc-bb-ignore:focus-visible, .ustc-bb-refresh:focus-visible, .ustc-bb-filters button:focus-visible,
         .ustc-bb-course a:focus-visible { outline: 3px solid #2563eb; outline-offset: 3px; }
         .ustc-bb-course-list { padding: 0 !important; list-style: none; }
         .ustc-bb-course-list > .ustc-bb-course {
@@ -143,6 +149,10 @@
         .ustc-bb-course-heading > a { display: block; color: #17365d; font-size: 14px; font-weight: 600; line-height: 1.6; }
         .ustc-bb-course-main > .ustc-bb-hint { flex: 0 0 auto; }
         .ustc-bb-course .ustc-bb-course-code { display: block; margin-top: 4px; color: #617089; font-size: 11px; font-weight: 400; line-height: 1.5; overflow-wrap: anywhere; }
+        /* 徽章只放短状态；「已忽略 N 项」「N 项待确认」等补充说明放在这一行，避免徽章在窄列里换成多行。 */
+        .ustc-bb-course .ustc-bb-course-note { display: block; margin-top: 2px; color: #617089; font-size: 11px; font-weight: 400; line-height: 1.5; overflow-wrap: anywhere; }
+        .ustc-bb-course .ustc-bb-course-note:empty { display: none; }
+        .ustc-bb-course-main > .ustc-bb-hint { white-space: nowrap; }
         .ustc-bb-assignment { border-radius: 10px; }
         .ustc-bb-assignment h3 { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; line-height: 1.8; overflow-wrap: anywhere; }
         .ustc-bb-assignment h3 > a { min-width: 0; }
@@ -579,7 +589,7 @@
                 if ((hidden && hw.contains(document.activeElement)) || ((status === 0 || entry.refreshing) && toggle === document.activeElement)) {
                     filterButtons[activeFilter].button.focus();
                 }
-                hint.className = `ustc-bb-hint ustc-bb-hint-${status}`;
+                hint.className = `ustc-bb-hint ustc-bb-hint-${status}${status === 0 || entry.refreshing ? ' ustc-bb-hint-busy' : ''}`;
                 hint.textContent = `${hintText[status]}${extra ? ' ' + extra : ''}${entry.refreshing && status !== 0 ? ' · 核验中' : ''}`;
                 toggle.disabled = status === 0 || entry.refreshing;
                 toggle.textContent = ignored ? '恢复' : '忽略';
@@ -688,24 +698,29 @@
             heading.className = 'ustc-bb-course-heading';
             heading.appendChild(a);
             if (code) heading.appendChild(code);
+            const note = heading.appendChild(document.createElement('span'));
+            note.className = 'ustc-bb-course-note';
             const badge = main.appendChild(document.createElement('span'));
-            badge.className = 'ustc-bb-hint ustc-bb-hint-0';
-            badge.textContent = '作业查询中…';
+            badge.className = 'ustc-bb-hint ustc-bb-hint-0 ustc-bb-hint-busy';
+            badge.textContent = '查询中';
             li.classList.add('ustc-bb-course');
-            return { li, a, courseId, badge, unsub: 0, hasHw: true, ready: false, pending: 0, failed: 0 };
+            return { li, a, courseId, badge, note, unsub: 0, hasHw: true, ready: false, pending: 0, failed: 0 };
         }).filter(Boolean);
         if (!items.length) return;
         ul.classList.add('ustc-bb-course-list');
         const overview = createOverview(ul, '课程概览', ['已确认待交', '待办课程', '当前课程']);
         const retry = overview.panel.appendChild(document.createElement('button'));
         retry.type = 'button';
-        retry.className = 'ustc-bb-ignore';
+        retry.className = 'ustc-bb-refresh';
         retry.textContent = '刷新作业状态';
 
         function updateOverview() {
             const pending = items.filter(item => !item.ready).length;
             const failed = items.filter(item => item.ready && item.failed).length;
-            overview.values[0].textContent = items.reduce((sum, item) => sum + Math.max(0, item.unsub), 0);
+            const unsubTotal = items.reduce((sum, item) => sum + Math.max(0, item.unsub), 0);
+            overview.values[0].textContent = unsubTotal;
+            // 只有确实有待交作业时才标红，0 不应该看起来像警告。
+            overview.values[0].classList.toggle('ustc-bb-stat-alert', unsubTotal > 0);
             overview.values[1].textContent = items.filter(item => item.unsub > 0).length;
             overview.values[2].textContent = items.length;
             overview.note.textContent = pending
@@ -730,28 +745,41 @@
             if (focused && document.activeElement !== focused) focused.focus({ preventScroll: true });
         }
 
+        // 徽章只给一眼可扫的短状态，补充说明（核验进度、待确认、已忽略）放到标题下的灰色小字。
         function updateBadge(item) {
+            let kind = 0, busy = false, label = '';
+            const notes = [];
             if (!item.hasHw) {
-                item.badge.className = 'ustc-bb-hint ustc-bb-hint-0';
-                item.badge.textContent = '无作业区';
+                label = '无作业区';
             } else if (item.unsub > 0) {
-                item.badge.className = 'ustc-bb-hint ustc-bb-hint-2';
-                item.badge.textContent = !item.ready || item.failed
-                    ? `至少 ${item.unsub} 项待交${!item.ready ? ' · 核验中…' : ` · ${item.failed} 项待确认`}`
-                    : `未提交 ${item.unsub}`;
+                kind = 2;
+                label = `未提交 ${item.unsub}`;
+                if (!item.ready) {
+                    busy = true;
+                    notes.push(item.pending ? `核验中，剩余 ${item.pending} 项，数量可能增加` : '核验中，数量可能增加');
+                } else if (item.failed) {
+                    notes.push(`另有 ${item.failed} 项查询失败待确认`);
+                }
             } else if (!item.ready) {
-                item.badge.className = 'ustc-bb-hint ustc-bb-hint-0';
-                item.badge.textContent = typeof item.previousCount === 'number'
-                    ? `上次待交 ${item.previousCount} · 正在重新核验`
-                    : item.pending ? `作业查询中 · 剩余 ${item.pending}` : '作业查询中…';
+                busy = true;
+                label = '查询中';
+                if (typeof item.previousCount === 'number') {
+                    notes.push(item.previousCount > 0 ? `上次待交 ${item.previousCount}，正在重新核验` : '上次已交齐，正在重新核验');
+                } else if (item.pending) {
+                    notes.push(`正在核验，剩余 ${item.pending} 项`);
+                }
             } else if (!item.failed) {
-                item.badge.className = 'ustc-bb-hint ustc-bb-hint-1';
-                item.badge.textContent = item.total === 0 ? '作业区暂无作业'
-                    : item.ignored ? `暂无待交 · 已忽略 ${item.ignored} 项` : '暂无待交 · 刚核验';
+                kind = 1;
+                label = item.total === 0 ? '暂无作业' : '已交齐';
             } else {
-                item.badge.className = 'ustc-bb-hint ustc-bb-hint-3';
-                item.badge.textContent = '查询未完成，可重试';
+                kind = 3;
+                label = '查询未完成';
+                notes.push('部分请求失败，可点击上方按钮重试');
             }
+            if (item.hasHw && item.ready && item.ignored) notes.push(`已忽略 ${item.ignored} 项`);
+            item.badge.className = `ustc-bb-hint ustc-bb-hint-${kind}${busy ? ' ustc-bb-hint-busy' : ''}`;
+            item.badge.textContent = label;
+            item.note.textContent = notes.join(' · ');
             item.li.dataset.status = item.unsub > 0 ? '2' : '0';
             updateOverview();
             sortCourses();
